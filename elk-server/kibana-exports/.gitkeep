@@ -1,0 +1,3 @@
+# Export Kibana dashboards and detection rules here as .ndjson files.
+# They will be committed to the repo and can be imported on any fresh ELK
+# instance via Kibana → Stack Management → Saved Objects → Import.

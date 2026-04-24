@@ -1,0 +1,20 @@
+# Mini SOC — Elasticsearch single-node config.
+# Security is disabled for lab use. Never expose this port outside a trusted network.
+
+cluster.name: mini-soc
+node.name: soc-es-1
+
+# Bind to all interfaces inside the container; Docker exposes 9200 to the host.
+network.host: 0.0.0.0
+http.port: 9200
+
+# Single-node mode — no master/voting discovery.
+discovery.type: single-node
+
+# Disable X-Pack security/TLS (lab only).
+xpack.security.enabled: false
+xpack.security.http.ssl.enabled: false
+xpack.security.transport.ssl.enabled: false
+
+# Disable geoip downloads so first-run works offline.
+ingest.geoip.downloader.enabled: false

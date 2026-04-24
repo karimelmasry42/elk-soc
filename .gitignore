@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets / local overrides (keep .env since it has no secrets, only versions)
+.env.local
+*.env.local
+secrets.yml
+*.pem
+*.key
+
+# Logs and runtime data
+*.log
+logs/
+dvwa-logs/
+
+# Beat registry/data (created on endpoints)
+data/
+registry/
+
+# Elasticsearch data (named volume is used, but guard against stray bind mounts)
+esdata/
+
+# Python virtualenvs and caches (in case team uses python tooling)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# NOTE: kibana-exports/*.ndjson is intentionally NOT ignored — we want
+# dashboards and detection rules checked in once exported.

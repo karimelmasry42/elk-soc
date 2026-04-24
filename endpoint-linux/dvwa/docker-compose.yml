@@ -1,0 +1,24 @@
+# Mini SOC — DVWA target on the Ubuntu endpoint.
+#
+# Default credentials (after running http://<endpoint-ip>/setup.php → Create / Reset Database):
+#   admin / password
+#
+# Set Security Level → Low once logged in, so the SQLi demo in
+# red-team/03-sqli-dvwa.sh works without extra bypasses.
+#
+# The Apache access log is bind-mounted to /opt/mini-soc/dvwa-logs/access.log
+# on the host so Filebeat can tail it (see ../configs/filebeat.yml).
+
+services:
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    container_name: soc-dvwa
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      # Host dir is created by setup-ubuntu.sh with permissions that let
+      # both the container (uid 33 / www-data) write and Filebeat read.
+      - /opt/mini-soc/dvwa-logs:/etc/apache2/logs
+    # vulnerables/web-dvwa bundles MySQL inside the same container, so no
+    # separate database service is needed.

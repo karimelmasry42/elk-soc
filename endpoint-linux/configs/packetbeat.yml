@@ -1,0 +1,47 @@
+# Mini SOC — Packetbeat config for the Ubuntu endpoint.
+# setup-ubuntu.sh replaces "ELK_IP" with the real server IP via sed.
+
+# Sniff on every interface. af_packet is the recommended sniffer on Linux 2.6+.
+packetbeat.interfaces.device: any
+packetbeat.interfaces.type: af_packet
+packetbeat.interfaces.snaplen: 1514
+packetbeat.interfaces.buffer_size_mb: 100
+
+# Flow records give you src/dst IP, bytes, duration — perfect for a "who talked to whom" view.
+packetbeat.flows:
+  timeout: 30s
+  period: 10s
+
+# Application-layer protocols to decode. Add/remove as needed.
+packetbeat.protocols:
+  - type: dns
+    ports: [53]
+    include_authorities: true
+    include_additionals: true
+
+  - type: http
+    ports: [80, 8080, 8000, 8081]
+
+  - type: tls
+    ports: [443, 993, 995, 5223, 8443, 8883, 9243]
+
+  - type: icmp
+    enabled: true
+
+fields:
+  soc_endpoint: ubuntu-endpoint
+fields_under_root: true
+
+output.logstash:
+  hosts: ["ELK_IP:5044"]
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/packetbeat
+  name: packetbeat
+  keepfiles: 3
+  permissions: 0640
+
+setup.template.enabled: false
+setup.ilm.enabled: false

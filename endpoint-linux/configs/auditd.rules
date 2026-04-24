@@ -1,0 +1,49 @@
+## Mini SOC — auditd ruleset for the Ubuntu endpoint.
+## Installed to /etc/audit/rules.d/mini-soc.rules by setup-ubuntu.sh.
+##
+## After install:  sudo augenrules --load  &&  sudo systemctl restart auditd
+
+# Delete any pre-existing rules so this file is authoritative.
+-D
+
+# Buffer size — increase if auditd starts dropping events.
+-b 8192
+
+# Fail open: if the kernel backlog fills, keep logging rather than panic.
+-f 1
+
+# ------------------------------------------------------------------------
+# Process execution — every execve() on the system.
+# ------------------------------------------------------------------------
+-a always,exit -F arch=b64 -S execve -k soc-exec
+-a always,exit -F arch=b32 -S execve -k soc-exec
+
+# ------------------------------------------------------------------------
+# Sensitive file access — credentials and user database.
+# ------------------------------------------------------------------------
+-w /etc/passwd       -p rwa -k soc-sensitive-file
+-w /etc/shadow       -p rwa -k soc-sensitive-file
+-w /etc/gshadow      -p rwa -k soc-sensitive-file
+-w /etc/sudoers      -p rwa -k soc-sensitive-file
+-w /etc/sudoers.d/   -p rwa -k soc-sensitive-file
+-w /root/.ssh/       -p rwa -k soc-sensitive-file
+-w /etc/ssh/sshd_config -p rwa -k soc-sensitive-file
+
+# ------------------------------------------------------------------------
+# Network connections — outbound connect() and listen().
+# ------------------------------------------------------------------------
+-a always,exit -F arch=b64 -S connect -S accept -S bind -k soc-network
+-a always,exit -F arch=b32 -S connect -S accept -S bind -k soc-network
+
+# ------------------------------------------------------------------------
+# Authentication — PAM and login-related paths.
+# ------------------------------------------------------------------------
+-w /var/log/auth.log   -p wa -k soc-auth
+-w /var/log/faillog    -p wa -k soc-auth
+-w /var/log/lastlog    -p wa -k soc-auth
+-w /etc/pam.d/         -p wa -k soc-auth
+
+# ------------------------------------------------------------------------
+# Make the rules immutable until reboot (prevents attacker tampering with auditd).
+# Uncomment after you are sure you won't need to edit rules on the fly.
+# -e 2

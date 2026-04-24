@@ -1,0 +1,42 @@
+# Mini SOC — Filebeat config for the Ubuntu endpoint.
+# setup-ubuntu.sh replaces "ELK_IP" with the real server IP via sed.
+
+filebeat.config.modules:
+  path: ${path.config}/modules.d/*.yml
+  reload.enabled: true
+  reload.period: 30s
+
+# Custom input: the DVWA Apache access log is bind-mounted to the host at
+# /opt/mini-soc/dvwa-logs/ by the DVWA docker-compose (see ./dvwa/).
+filebeat.inputs:
+  - type: filestream
+    id: dvwa-access
+    enabled: true
+    paths:
+      - /opt/mini-soc/dvwa-logs/access.log
+    fields:
+      log_source: dvwa
+    fields_under_root: false
+    tags: ["dvwa", "apache-access"]
+
+# Tag every event from this host so Logstash can identify it.
+fields:
+  soc_endpoint: ubuntu-endpoint
+fields_under_root: true
+
+# Ship to Logstash, not Elasticsearch (so our pipeline runs).
+output.logstash:
+  hosts: ["ELK_IP:5044"]
+
+# Keep the local filebeat log small and noisy-free.
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 3
+  permissions: 0640
+
+# Don't try to install index templates — Logstash handles index naming.
+setup.template.enabled: false
+setup.ilm.enabled: false

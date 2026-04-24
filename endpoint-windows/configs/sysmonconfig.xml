@@ -1,0 +1,102 @@
+<!--
+    Mini SOC — trimmed Sysmon config.
+
+    Inspired by SwiftOnSecurity's community config:
+      https://github.com/SwiftOnSecurity/sysmon-config
+    If you want more coverage, swap this file for the full upstream version.
+
+    Captured event IDs:
+      1  ProcessCreate    — every new process, with command line & hashes
+      3  NetworkConnect   — TCP/UDP connections initiated by processes
+      7  ImageLoad        — DLLs loaded (noisy — filtered to signed=false below)
+      11 FileCreate       — new files (filtered to a few interesting paths)
+      13 RegistryEvent    — persistence-relevant registry modifications
+      22 DnsQuery         — DNS lookups made by processes
+
+    schemaversion must match the installed Sysmon binary. 4.90 covers
+    Sysmon v13+ which is what Sysinternals currently ships.
+-->
+<Sysmon schemaversion="4.90">
+
+  <HashAlgorithms>md5,sha256</HashAlgorithms>
+  <CheckRevocation/>
+  <DnsLookup>false</DnsLookup>
+
+  <EventFiltering>
+
+    <!-- ====================================================
+         Event ID 1 — ProcessCreate
+         Log everything. Filter out obvious noise only.
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <!-- Common benign signed Microsoft utilities that run constantly -->
+        <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
+        <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- ====================================================
+         Event ID 3 — NetworkConnect
+         Log everything except internal/loopback.
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <NetworkConnect onmatch="exclude">
+        <DestinationIp condition="is">127.0.0.1</DestinationIp>
+        <DestinationIp condition="is">::1</DestinationIp>
+        <DestinationHostname condition="contains">.local</DestinationHostname>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- ====================================================
+         Event ID 7 — ImageLoad (noisy — only unsigned modules)
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <ImageLoad onmatch="include">
+        <Signed condition="is">false</Signed>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- ====================================================
+         Event ID 11 — FileCreate (interesting paths only)
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <FileCreate onmatch="include">
+        <TargetFilename condition="contains">\Startup\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Windows\Start Menu\</TargetFilename>
+        <TargetFilename condition="end with">.exe</TargetFilename>
+        <TargetFilename condition="end with">.dll</TargetFilename>
+        <TargetFilename condition="end with">.ps1</TargetFilename>
+        <TargetFilename condition="end with">.bat</TargetFilename>
+        <TargetFilename condition="end with">.vbs</TargetFilename>
+        <TargetFilename condition="end with">.hta</TargetFilename>
+      </FileCreate>
+    </RuleGroup>
+
+    <!-- ====================================================
+         Event ID 13 — Registry Value Set (persistence keys)
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <RegistryEvent onmatch="include">
+        <TargetObject condition="contains">\CurrentVersion\Run</TargetObject>
+        <TargetObject condition="contains">\CurrentVersion\RunOnce</TargetObject>
+        <TargetObject condition="contains">\Winlogon\</TargetObject>
+        <TargetObject condition="contains">\Services\</TargetObject>
+        <TargetObject condition="contains">\Image File Execution Options\</TargetObject>
+      </RegistryEvent>
+    </RuleGroup>
+
+    <!-- ====================================================
+         Event ID 22 — DNS Query
+         Exclude Microsoft telemetry domains to cut noise.
+         ==================================================== -->
+    <RuleGroup name="" groupRelation="or">
+      <DnsQuery onmatch="exclude">
+        <QueryName condition="end with">.microsoft.com</QueryName>
+        <QueryName condition="end with">.windowsupdate.com</QueryName>
+        <QueryName condition="end with">.windows.com</QueryName>
+      </DnsQuery>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>

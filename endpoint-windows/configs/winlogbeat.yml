@@ -1,0 +1,54 @@
+# Mini SOC — Winlogbeat config for the Windows 11 endpoint.
+# setup-windows.ps1 replaces "ELK_IP" with the real server IP.
+
+winlogbeat.event_logs:
+
+  # ---- Sysmon — process, network, file, registry, DNS telemetry ----
+  - name: Microsoft-Windows-Sysmon/Operational
+    ignore_older: 72h
+
+  # ---- Security — logins, failed logins, privilege use, process creation ----
+  # Event IDs of interest:
+  #   4624 = successful logon      4625 = failed logon
+  #   4648 = explicit credentials  4672 = special privileges assigned
+  #   4688 = process created       4720 = user account created
+  - name: Security
+    ignore_older: 72h
+    # Pre-filter in the agent to reduce volume.
+    processors:
+      - drop_event.when.not.or:
+          - equals.winlog.event_id: "4624"
+          - equals.winlog.event_id: "4625"
+          - equals.winlog.event_id: "4648"
+          - equals.winlog.event_id: "4672"
+          - equals.winlog.event_id: "4688"
+          - equals.winlog.event_id: "4720"
+
+  # ---- PowerShell ----
+  - name: Windows PowerShell
+    ignore_older: 72h
+
+  - name: Microsoft-Windows-PowerShell/Operational
+    ignore_older: 72h
+
+  # ---- System ----
+  - name: System
+    ignore_older: 72h
+
+# Tag every event with the endpoint name.
+fields:
+  soc_endpoint: windows-endpoint
+fields_under_root: true
+
+output.logstash:
+  hosts: ["ELK_IP:5044"]
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: C:/ProgramData/winlogbeat/logs
+  name: winlogbeat
+  keepfiles: 3
+
+setup.template.enabled: false
+setup.ilm.enabled: false
