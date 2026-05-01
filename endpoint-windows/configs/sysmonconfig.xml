@@ -1,17 +1,29 @@
 <!--
-    Mini SOC — trimmed Sysmon config.
+    Mini SOC — Sysmon config (SwiftOnSecurity-style, lab-tuned).
 
     Inspired by SwiftOnSecurity's community config:
       https://github.com/SwiftOnSecurity/sysmon-config
-    If you want more coverage, swap this file for the full upstream version.
 
-    Captured event IDs:
-      1  ProcessCreate    — every new process, with command line & hashes
-      3  NetworkConnect   — TCP/UDP connections initiated by processes
-      7  ImageLoad        — DLLs loaded (noisy — filtered to signed=false below)
-      11 FileCreate       — new files (filtered to a few interesting paths)
-      13 RegistryEvent    — persistence-relevant registry modifications
-      22 DnsQuery         — DNS lookups made by processes
+    Captured event IDs and filter intent:
+      1  ProcessCreate    — every new process; exclude only signed-MS noise.
+                            Captures: PowerShell/cmd/wscript/cscript/mshta/
+                            rundll32/regsvr32/schtasks/at/bitsadmin/certutil/
+                            msbuild/installutil; Office children; encoded
+                            PowerShell command lines; SYSTEM-integrity procs.
+      3  NetworkConnect   — exclude loopback + .local + signed-MS endpoints.
+                            Captures: outbound from script interpreters,
+                            connections to common C2/reverse-shell ports.
+      7  ImageLoad        — include unsigned modules + signed-but-suspicious
+                            loads (user-writable paths, abuse-prone DLLs,
+                            living-off-the-land binaries). Noisiest event.
+      11 FileCreate       — include autostart/persistence paths, executable
+                            and script extensions, scheduled-task XML drops,
+                            Office macro / template directories.
+      13 RegistryEvent    — include the documented persistence keys: Run/
+                            RunOnce family, Winlogon, Services, IFEO, LSA
+                            packages, AppInit/AppCert DLLs, COM hijack roots,
+                            scheduled-task tampering, Office macro security.
+      22 DnsQuery         — exclude high-volume MS / Office / CDN domains.
 
     schemaversion must match the installed Sysmon binary. 4.90 covers
     Sysmon v13+ which is what Sysinternals currently ships.
@@ -26,75 +38,210 @@
 
     <!-- ====================================================
          Event ID 1 — ProcessCreate
-         Log everything. Filter out obvious noise only.
+         Broad-coverage: log every new process, exclude only
+         signed Microsoft utilities that run constantly. The
+         living-off-the-land binaries (powershell, rundll32,
+         certutil, schtasks, etc.) are NOT excluded and will
+         be captured for every invocation.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <ProcessCreate onmatch="exclude">
-        <!-- Common benign signed Microsoft utilities that run constantly -->
         <Image condition="is">C:\Windows\System32\SearchIndexer.exe</Image>
         <Image condition="is">C:\Windows\System32\svchost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchProtocolHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\SearchFilterHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\CompatTelRunner.exe</Image>
+        <Image condition="is">C:\Windows\System32\backgroundTaskHost.exe</Image>
+        <Image condition="is">C:\Windows\System32\RuntimeBroker.exe</Image>
+        <Image condition="is">C:\Windows\System32\SgrmBroker.exe</Image>
+        <Image condition="is">C:\Windows\System32\smartscreen.exe</Image>
+        <Image condition="is">C:\Windows\System32\dllhost.exe</Image>
+        <Image condition="is">C:\Windows\System32\conhost.exe</Image>
+        <Image condition="is">C:\Program Files\Windows Defender\MsMpEng.exe</Image>
+        <Image condition="is">C:\Program Files\Windows Defender\MpCmdRun.exe</Image>
+        <Image condition="is">C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe</Image>
       </ProcessCreate>
     </RuleGroup>
 
     <!-- ====================================================
          Event ID 3 — NetworkConnect
-         Log everything except internal/loopback.
+         Broad-coverage: log every outbound connection,
+         exclude loopback, link-local, and a handful of
+         signed-MS endpoints that generate constant traffic.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <NetworkConnect onmatch="exclude">
         <DestinationIp condition="is">127.0.0.1</DestinationIp>
         <DestinationIp condition="is">::1</DestinationIp>
         <DestinationHostname condition="contains">.local</DestinationHostname>
+        <Image condition="is">C:\Program Files\Windows Defender\MsMpEng.exe</Image>
+        <Image condition="is">C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe</Image>
+        <Image condition="image">OneDrive.exe</Image>
+        <Image condition="image">Teams.exe</Image>
+        <DestinationHostname condition="end with">.microsoft.com</DestinationHostname>
+        <DestinationHostname condition="end with">.windowsupdate.com</DestinationHostname>
+        <DestinationHostname condition="end with">.windows.com</DestinationHostname>
+        <DestinationHostname condition="end with">.office.com</DestinationHostname>
+        <DestinationHostname condition="end with">.office365.com</DestinationHostname>
+        <DestinationHostname condition="end with">.azureedge.net</DestinationHostname>
       </NetworkConnect>
     </RuleGroup>
 
     <!-- ====================================================
-         Event ID 7 — ImageLoad (noisy — only unsigned modules)
+         Event ID 7 — ImageLoad (DLL load)
+         Include-mode: list the loads we care about. Sysmon
+         EID 7 is the noisiest event class; even with these
+         filters expect higher volume than other EIDs.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <ImageLoad onmatch="include">
+        <!-- Unsigned modules: classic dropper / unpacked payload signal -->
         <Signed condition="is">false</Signed>
+        <SignatureStatus condition="is not">Valid</SignatureStatus>
+
+        <!-- Signed-but-suspicious paths (user-writable directories) -->
+        <ImageLoaded condition="contains">\AppData\Local\Temp\</ImageLoaded>
+        <ImageLoaded condition="contains">\AppData\Roaming\</ImageLoaded>
+        <ImageLoaded condition="contains">\Users\Public\</ImageLoaded>
+        <ImageLoaded condition="begin with">C:\Windows\Temp\</ImageLoaded>
+        <ImageLoaded condition="begin with">C:\PerfLogs\</ImageLoaded>
+        <ImageLoaded condition="begin with">C:\$Recycle.Bin\</ImageLoaded>
+
+        <!-- Living-off-the-land binaries: any DLL load by these is signal -->
+        <Image condition="image">rundll32.exe</Image>
+        <Image condition="image">regsvr32.exe</Image>
+        <Image condition="image">mshta.exe</Image>
+        <Image condition="image">odbcconf.exe</Image>
+        <Image condition="image">installutil.exe</Image>
+
+        <!-- Abuse-prone DLLs (script engines, .NET CLR, COM helpers) -->
+        <ImageLoaded condition="end with">\clr.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\vbscript.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\jscript.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\jscript9.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\mshtml.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\wmiutils.dll</ImageLoaded>
+        <ImageLoaded condition="end with">\amsi.dll</ImageLoaded>
       </ImageLoad>
     </RuleGroup>
 
     <!-- ====================================================
-         Event ID 11 — FileCreate (interesting paths only)
+         Event ID 11 — FileCreate
+         Include-mode: autostart paths, persistence locations,
+         executable / script extensions, scheduled-task XML
+         drops, Office macro and template directories.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <FileCreate onmatch="include">
+        <!-- Autostart / persistence paths -->
         <TargetFilename condition="contains">\Startup\</TargetFilename>
         <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Windows\Start Menu\</TargetFilename>
+        <TargetFilename condition="contains">\Windows\Tasks\</TargetFilename>
+        <TargetFilename condition="contains">\Windows\System32\Tasks\</TargetFilename>
+        <TargetFilename condition="contains">\Users\Public\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Local\Temp\</TargetFilename>
+
+        <!-- Office macro / template drop indicators -->
+        <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Office\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Templates\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Word\STARTUP\</TargetFilename>
+        <TargetFilename condition="contains">\AppData\Roaming\Microsoft\Excel\XLSTART\</TargetFilename>
+
+        <!-- Executable / script extensions -->
         <TargetFilename condition="end with">.exe</TargetFilename>
         <TargetFilename condition="end with">.dll</TargetFilename>
+        <TargetFilename condition="end with">.scr</TargetFilename>
+        <TargetFilename condition="end with">.cpl</TargetFilename>
+        <TargetFilename condition="end with">.com</TargetFilename>
+        <TargetFilename condition="end with">.pif</TargetFilename>
+        <TargetFilename condition="end with">.lnk</TargetFilename>
+        <TargetFilename condition="end with">.jar</TargetFilename>
+
+        <!-- Script extensions -->
         <TargetFilename condition="end with">.ps1</TargetFilename>
+        <TargetFilename condition="end with">.psm1</TargetFilename>
+        <TargetFilename condition="end with">.psd1</TargetFilename>
         <TargetFilename condition="end with">.bat</TargetFilename>
+        <TargetFilename condition="end with">.cmd</TargetFilename>
         <TargetFilename condition="end with">.vbs</TargetFilename>
+        <TargetFilename condition="end with">.vbe</TargetFilename>
+        <TargetFilename condition="end with">.js</TargetFilename>
+        <TargetFilename condition="end with">.jse</TargetFilename>
+        <TargetFilename condition="end with">.wsf</TargetFilename>
+        <TargetFilename condition="end with">.wsh</TargetFilename>
         <TargetFilename condition="end with">.hta</TargetFilename>
       </FileCreate>
     </RuleGroup>
 
     <!-- ====================================================
-         Event ID 13 — Registry Value Set (persistence keys)
+         Event ID 13 — Registry Value Set
+         Include-mode: documented persistence keys plus
+         common COM-hijack and macro-security tampering paths.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <RegistryEvent onmatch="include">
+        <!-- Run / RunOnce family -->
         <TargetObject condition="contains">\CurrentVersion\Run</TargetObject>
         <TargetObject condition="contains">\CurrentVersion\RunOnce</TargetObject>
+        <TargetObject condition="contains">\CurrentVersion\RunOnceEx</TargetObject>
+        <TargetObject condition="contains">\CurrentVersion\RunServices</TargetObject>
+        <TargetObject condition="contains">\CurrentVersion\RunServicesOnce</TargetObject>
+
+        <!-- Winlogon / Userinit / Shell hijacks -->
         <TargetObject condition="contains">\Winlogon\</TargetObject>
+        <TargetObject condition="contains">\Winlogon\Userinit</TargetObject>
+        <TargetObject condition="contains">\Winlogon\Shell</TargetObject>
+        <TargetObject condition="contains">\Windows\CurrentVersion\Winlogon\Notify</TargetObject>
+        <TargetObject condition="contains">\Group Policy\Scripts\</TargetObject>
+        <TargetObject condition="end with">\UserInitMprLogonScript</TargetObject>
+
+        <!-- Services and IFEO -->
         <TargetObject condition="contains">\Services\</TargetObject>
         <TargetObject condition="contains">\Image File Execution Options\</TargetObject>
+
+        <!-- AppInit / AppCert DLLs -->
+        <TargetObject condition="contains">\Windows NT\CurrentVersion\Windows\AppInit_DLLs</TargetObject>
+        <TargetObject condition="contains">\Control\Session Manager\AppCertDlls</TargetObject>
+
+        <!-- LSA packages (credential-theft persistence) -->
+        <TargetObject condition="contains">\Lsa\Notification Packages</TargetObject>
+        <TargetObject condition="contains">\Lsa\Authentication Packages</TargetObject>
+        <TargetObject condition="contains">\Lsa\Security Packages</TargetObject>
+
+        <!-- COM hijack roots (per-user CLSID overrides shadow HKLM) -->
+        <TargetObject condition="contains">HKU\</TargetObject>
+        <TargetObject condition="contains">\Software\Classes\CLSID\</TargetObject>
+        <TargetObject condition="contains">\Software\Classes\Wow6432Node\CLSID\</TargetObject>
+
+        <!-- Scheduled-task tampering -->
+        <TargetObject condition="contains">\CurrentVersion\Schedule\TaskCache\Tree\</TargetObject>
+
+        <!-- Office macro security (lowering trust = red flag) -->
+        <TargetObject condition="contains">\Microsoft\Office\</TargetObject>
+        <TargetObject condition="end with">\Security\VBAWarnings</TargetObject>
+        <TargetObject condition="end with">\Security\AccessVBOM</TargetObject>
       </RegistryEvent>
     </RuleGroup>
 
     <!-- ====================================================
          Event ID 22 — DNS Query
-         Exclude Microsoft telemetry domains to cut noise.
+         Broad-coverage: log every DNS query, exclude only
+         high-volume signed-MS / Office / CDN domains.
          ==================================================== -->
     <RuleGroup name="" groupRelation="or">
       <DnsQuery onmatch="exclude">
         <QueryName condition="end with">.microsoft.com</QueryName>
         <QueryName condition="end with">.windowsupdate.com</QueryName>
         <QueryName condition="end with">.windows.com</QueryName>
+        <QueryName condition="end with">.office.com</QueryName>
+        <QueryName condition="end with">.office365.com</QueryName>
+        <QueryName condition="end with">.live.com</QueryName>
+        <QueryName condition="end with">.msn.com</QueryName>
+        <QueryName condition="end with">.bing.com</QueryName>
+        <QueryName condition="end with">.skype.com</QueryName>
+        <QueryName condition="end with">.azureedge.net</QueryName>
+        <QueryName condition="end with">.akamaiedge.net</QueryName>
+        <QueryName condition="end with">.akadns.net</QueryName>
       </DnsQuery>
     </RuleGroup>
 
